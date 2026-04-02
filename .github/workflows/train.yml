@@ -1,0 +1,120 @@
+name: Train Model
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      flavor_id:
+        description: 'Selectel flavor ID (GPU)'
+        default: '13961'  # GL21.16-65536-1GPU — уточнить под RTX 4090
+        required: true
+
+env:
+  REGION: ru-7
+  # Уточнить после проверки в панели Selectel:
+  GPU_FLAVOR_ID: ${{ github.event.inputs.flavor_id || '13961' }}
+  GPU_IMAGE_ID: ''        # TODO: ID образа Ubuntu 22.04 в ru-7
+  GPU_NETWORK_ID: ''      # TODO: ID сети в ru-7
+  GPU_KEYPAIR: 'mlops-key'
+  VM_NAME: 'gpu-train-${{ github.run_id }}'
+  MLFLOW_TRACKING_URI: 'http://212.74.224.231:5000'  # TODO: заменить на private IP когда будет VPC
+  MINIO_ENDPOINT: 'http://212.74.224.231:9000'
+
+jobs:
+  train:
+    runs-on: [self-hosted, linux, gpu-orchestrator]
+    timeout-minutes: 480  # 8 часов max
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 1. Поднять GPU VM ────────────────────────────────────────────────────
+      - name: Create GPU VM
+        id: create_vm
+        env:
+          SELECTEL_USER: ${{ secrets.SELECTEL_USER }}
+          SELECTEL_PASSWORD: ${{ secrets.SELECTEL_PASSWORD }}
+          SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
+          SELECTEL_PROJECT_ID: ${{ secrets.SELECTEL_PROJECT_ID }}
+        run: |
+          VM_ID=$(python3 /opt/projects/ds-expedition-infra/scripts/selectel_vm.py create \
+            --name "${{ env.VM_NAME }}" \
+            --flavor "${{ env.GPU_FLAVOR_ID }}" \
+            --image "${{ env.GPU_IMAGE_ID }}" \
+            --key "${{ env.GPU_KEYPAIR }}" \
+            --network "${{ env.GPU_NETWORK_ID }}" \
+            --userdata /opt/projects/ds-expedition-infra/scripts/cloud-init-gpu.yaml)
+          echo "vm_id=$VM_ID" >> $GITHUB_OUTPUT
+          echo "GPU VM created: $VM_ID"
+
+      - name: Wait for VM to be ACTIVE
+        env:
+          SELECTEL_USER: ${{ secrets.SELECTEL_USER }}
+          SELECTEL_PASSWORD: ${{ secrets.SELECTEL_PASSWORD }}
+          SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
+          SELECTEL_PROJECT_ID: ${{ secrets.SELECTEL_PROJECT_ID }}
+        run: |
+          python3 /opt/projects/ds-expedition-infra/scripts/selectel_vm.py wait \
+            --id ${{ steps.create_vm.outputs.vm_id }}
+
+      - name: Get VM IP
+        id: get_ip
+        env:
+          SELECTEL_USER: ${{ secrets.SELECTEL_USER }}
+          SELECTEL_PASSWORD: ${{ secrets.SELECTEL_PASSWORD }}
+          SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
+          SELECTEL_PROJECT_ID: ${{ secrets.SELECTEL_PROJECT_ID }}
+        run: |
+          # Ждём cloud-init (~3 мин)
+          sleep 180
+          VM_IP=$(python3 /opt/projects/ds-expedition-infra/scripts/selectel_vm.py ip \
+            --id ${{ steps.create_vm.outputs.vm_id }})
+          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "VM IP: $VM_IP"
+
+      # ── 2. Загрузить датасет из MinIO на GPU VM ──────────────────────────────
+      - name: Sync dataset to GPU VM
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/selectel_ds_scan \
+            mlops@${{ steps.get_ip.outputs.vm_ip }} \
+            "mc alias set minio ${{ env.MINIO_ENDPOINT }} \
+              ${{ secrets.MINIO_ROOT_USER }} ${{ secrets.MINIO_ROOT_PASSWORD }} && \
+             mc mirror minio/datasets /opt/datasets/"
+
+      # ── 3. Запустить обучение ────────────────────────────────────────────────
+      - name: Run training
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/selectel_ds_scan \
+            mlops@${{ steps.get_ip.outputs.vm_ip }} \
+            "cd /opt/project && \
+             git clone ${{ github.server_url }}/${{ github.repository }} . && \
+             git checkout ${{ github.sha }} && \
+             source /opt/ml-env/bin/activate && \
+             MLFLOW_TRACKING_URI=${{ env.MLFLOW_TRACKING_URI }} \
+             MLFLOW_RUN_NAME=train-${{ github.ref_name }}-${{ github.run_id }} \
+             python3 train.py \
+               --dataset /opt/datasets \
+               --output /opt/artifacts"
+
+      # ── 4. Сохранить артефакты в MinIO ──────────────────────────────────────
+      - name: Upload artifacts to MinIO
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/selectel_ds_scan \
+            mlops@${{ steps.get_ip.outputs.vm_ip }} \
+            "mc mirror /opt/artifacts/ minio/checkpoints/${{ github.ref_name }}/"
+
+      # ── 5. Удалить GPU VM (всегда, даже при ошибке) ─────────────────────────
+      - name: Delete GPU VM
+        if: always()
+        env:
+          SELECTEL_USER: ${{ secrets.SELECTEL_USER }}
+          SELECTEL_PASSWORD: ${{ secrets.SELECTEL_PASSWORD }}
+          SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
+          SELECTEL_PROJECT_ID: ${{ secrets.SELECTEL_PROJECT_ID }}
+        run: |
+          python3 /opt/projects/ds-expedition-infra/scripts/selectel_vm.py delete \
+            --id ${{ steps.create_vm.outputs.vm_id }}
+          echo "GPU VM deleted ✅"
