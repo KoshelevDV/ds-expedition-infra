@@ -17,7 +17,7 @@ env:
   GPU_FLAVOR_ID: ${{ github.event.inputs.flavor_id || '13961' }}
   GPU_IMAGE_ID: '01179c74-2d9e-4b59-8b93-c6a2b55d00ba'  # Ubuntu 22.04 GPU Driver 590 + Docker
   GPU_NETWORK_ID: 'd0df791e-6044-46d1-a705-a7963beafb34'  # Москва ru-7
-  GPU_KEYPAIR: 'mlops-key'
+  GPU_KEYPAIR: 'OpenClaw'
   VM_NAME: 'gpu-train-${{ github.run_id }}'
   MLFLOW_TRACKING_URI: 'http://192.168.0.239:5000'  # private network ru-7
   MINIO_ENDPOINT: 'http://192.168.0.239:9000'
