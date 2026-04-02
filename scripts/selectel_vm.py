@@ -64,6 +64,12 @@ def api(method, path, token, body=None):
 
 
 def cmd_create(args, token):
+    import base64
+    userdata = None
+    if args.userdata:
+        with open(args.userdata) as f:
+            userdata = base64.b64encode(f.read().encode()).decode()
+
     body = {
         "server": {
             "name": args.name,
@@ -71,7 +77,8 @@ def cmd_create(args, token):
             "imageRef": args.image,
             "key_name": args.key,
             "networks": [{"uuid": args.network}],
-            "user_data": open(args.userdata).read() if args.userdata else None,
+            "availability_zone": os.environ.get("AVAILABILITY_ZONE", "ru-7b"),
+            "user_data": userdata,
         }
     }
     # Remove None values
