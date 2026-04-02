@@ -7,7 +7,7 @@
   hosts: ml_nodes
   become: true
   vars:
-    ssh_port: 22
+    ssh_port: 22022
     deploy_user: mlops
     deploy_user_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBTtJ86l4I8tLLxkWKmqDDQxJTA2UhCk+CvEsh1m3LQt user@fedora"
 
@@ -116,11 +116,12 @@
         default: allow
         direction: outgoing
 
-    - name: Allow SSH (публично)
+    - name: Allow SSH custom port (публично)
       community.general.ufw:
         rule: allow
-        port: "22"
+        port: "22022"
         proto: tcp
+        comment: "SSH custom port"
 
     - name: Allow MLflow UI (localhost only)
       community.general.ufw:
