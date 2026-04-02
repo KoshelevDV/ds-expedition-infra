@@ -78,7 +78,10 @@ services:
 
   # ── MLflow — experiment tracking ────────────────────────────────────────────
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.21.3
+    build:
+      context: .
+      dockerfile: mlflow.Dockerfile
+    image: ml-mlflow:v2.21.3  # кешируется локально, пересборка только при изменении
     container_name: ml-mlflow
     restart: unless-stopped
     depends_on:
