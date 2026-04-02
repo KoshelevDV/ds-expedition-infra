@@ -1,7 +1,7 @@
 #cloud-config
 # GPU VM cloud-init
 # Базовый образ: Ubuntu 22.04 + GPU Driver 590 + Docker (уже встроено)
-# Устанавливаем только Python 3.11 + ML зависимости
+# Устанавливаем только Python 3.12 + ML зависимости
 
 users:
   - name: mlops
@@ -10,8 +10,8 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
 
 packages:
-  - python3.11
-  - python3.11-venv
+  - python3.12
+  - python3.12-venv
   - python3-pip
   - git
 
@@ -25,7 +25,7 @@ runcmd:
   - chmod +x /usr/local/bin/mc
 
   # Python venv + ML зависимости
-  - python3.11 -m venv /opt/ml-env
+  - python3.12 -m venv /opt/ml-env
   - /opt/ml-env/bin/pip install --upgrade pip --quiet
   - /opt/ml-env/bin/pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
   - /opt/ml-env/bin/pip install --quiet mlflow boto3 rasterio geopandas shapely numpy pandas scikit-learn tqdm
