@@ -1,0 +1,145 @@
+version: "3.8"
+
+# ML Stack для конкурса Экспедиция DS
+# MLflow (experiment tracking) + MinIO (S3 for artifacts/DVC) + PostgreSQL + Jupyter
+#
+# Запуск: docker compose up -d
+# Доступ (через SSH tunnel):
+#   MLflow:   http://localhost:5000
+#   MinIO UI: http://localhost:9001
+#   Jupyter:  http://localhost:8888
+
+services:
+
+  # ── PostgreSQL — backend store для MLflow ───────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ml-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: mlflow
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ml-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── MinIO — S3-совместимое хранилище (artifacts + DVC remote) ───────────────
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: ml-minio
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Console UI
+    networks:
+      - ml-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO init — создать бакеты при первом запуске ──────────────────────────
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: ml-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file: .env
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing local/mlflow-artifacts;
+      mc mb --ignore-existing local/dvc-remote;
+      mc mb --ignore-existing local/datasets;
+      mc mb --ignore-existing local/checkpoints;
+      mc mb --ignore-existing local/submissions;
+      echo 'Buckets created';
+      "
+    networks:
+      - ml-net
+    restart: on-failure
+
+  # ── MLflow — experiment tracking ────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.21.3
+    container_name: ml-mlflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://mlflow:${POSTGRES_PASSWORD}@postgres/mlflow
+      --default-artifact-root s3://mlflow-artifacts/
+      --host 0.0.0.0
+      --port 5000
+      --serve-artifacts
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - ml-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── JupyterLab — разработка и EDA ───────────────────────────────────────────
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:python-3.12
+    container_name: ml-jupyter
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - /opt/projects:/home/jovyan/projects
+      - /opt/datasets:/home/jovyan/datasets
+      - /opt/artifacts:/home/jovyan/artifacts
+      - jupyter_data:/home/jovyan/.jupyter
+    ports:
+      - "127.0.0.1:8888:8888"
+    networks:
+      - ml-net
+    user: root
+    command: >
+      start-notebook.sh
+      --NotebookApp.token='${JUPYTER_TOKEN}'
+      --NotebookApp.ip=0.0.0.0
+
+volumes:
+  postgres_data:
+  minio_data:
+  jupyter_data:
+
+networks:
+  ml-net:
+    driver: bridge
