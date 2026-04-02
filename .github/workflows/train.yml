@@ -8,13 +8,13 @@ on:
     inputs:
       flavor_id:
         description: 'Selectel flavor ID (GPU)'
-        default: '13961'  # GL21.16-65536-1GPU — уточнить под RTX 4090
+        default: '3102'   # GL10.8-65536-0-1GPU — RTX 4090 24GB, 8vCPU, 64GB RAM
         required: true
 
 env:
   REGION: ru-7
-  # Уточнить после проверки в панели Selectel:
-  GPU_FLAVOR_ID: ${{ github.event.inputs.flavor_id || '13961' }}
+  # GL10 = RTX 4090. GL10.8-65536-0-1GPU: 8vCPU, 64GB RAM, 1x RTX 4090 24GB
+  GPU_FLAVOR_ID: ${{ github.event.inputs.flavor_id || '3102' }}
   GPU_IMAGE_ID: '01179c74-2d9e-4b59-8b93-c6a2b55d00ba'  # Ubuntu 22.04 GPU Driver 590 + Docker
   GPU_NETWORK_ID: 'd0df791e-6044-46d1-a705-a7963beafb34'  # Москва ru-7
   GPU_KEYPAIR: 'OpenClaw'
