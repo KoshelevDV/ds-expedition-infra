@@ -1,0 +1,285 @@
+---
+# Базовая настройка ML VM для конкурса Экспедиция DS
+# SSH порт публичный (не ограничен по IP)
+# ufw: ssh открыт для всех, остальные порты — только для нужных
+
+- name: Base ML VM setup
+  hosts: ml_nodes
+  become: true
+  vars:
+    ssh_port: 22
+    deploy_user: mlops
+    deploy_user_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBTtJ86l4I8tLLxkWKmqDDQxJTA2UhCk+CvEsh1m3LQt user@fedora"
+
+  tasks:
+    # ── Обновление системы ────────────────────────────────────────────────────
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: true
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - tmux
+          - unzip
+          - jq
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - build-essential
+          - python3-pip
+          - python3-venv
+          - python3-dev
+          - rclone
+          - fail2ban
+          - ufw
+        state: present
+
+    # ── Пользователь mlops ────────────────────────────────────────────────────
+    - name: Create mlops user
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        shell: /bin/bash
+        create_home: true
+        groups: sudo
+        append: true
+
+    - name: Add SSH pubkey for mlops
+      ansible.posix.authorized_key:
+        user: "{{ deploy_user }}"
+        key: "{{ deploy_user_pubkey }}"
+        state: present
+
+    - name: Allow mlops passwordless sudo
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/mlops
+        line: "mlops ALL=(ALL) NOPASSWD:ALL"
+        create: true
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    # ── SSH hardening (порт публичный) ────────────────────────────────────────
+    - name: Harden SSH config
+      ansible.builtin.blockinfile:
+        path: /etc/ssh/sshd_config.d/99-hardening.conf
+        create: true
+        block: |
+          PasswordAuthentication no
+          PermitRootLogin prohibit-password
+          PubkeyAuthentication yes
+          X11Forwarding no
+          MaxAuthTries 3
+          LoginGraceTime 20
+          AllowAgentForwarding no
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+      notify: restart sshd
+
+    # ── fail2ban ──────────────────────────────────────────────────────────────
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        content: |
+          [sshd]
+          enabled = true
+          port = ssh
+          maxretry = 5
+          bantime = 3600
+          findtime = 600
+        mode: "0644"
+      notify: restart fail2ban
+
+    # ── UFW firewall ──────────────────────────────────────────────────────────
+    - name: Reset UFW
+      community.general.ufw:
+        state: reset
+
+    - name: Set UFW default deny incoming
+      community.general.ufw:
+        default: deny
+        direction: incoming
+
+    - name: Set UFW default allow outgoing
+      community.general.ufw:
+        default: allow
+        direction: outgoing
+
+    - name: Allow SSH (публично)
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Allow MLflow UI (localhost only)
+      community.general.ufw:
+        rule: allow
+        port: "5000"
+        proto: tcp
+        src: 127.0.0.1
+
+    - name: Allow MinIO API (localhost only)
+      community.general.ufw:
+        rule: allow
+        port: "9000"
+        proto: tcp
+        src: 127.0.0.1
+
+    - name: Allow MinIO Console (localhost only)
+      community.general.ufw:
+        rule: allow
+        port: "9001"
+        proto: tcp
+        src: 127.0.0.1
+
+    - name: Allow Jupyter (localhost only)
+      community.general.ufw:
+        rule: allow
+        port: "8888"
+        proto: tcp
+        src: 127.0.0.1
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    # ── Docker ────────────────────────────────────────────────────────────────
+    - name: Ensure Docker apt sources are clean (remove duplicate)
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
+        state: absent
+
+    - name: Add Docker GPG key
+      ansible.builtin.shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+          gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Add Docker apt repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: |
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        mode: "0644"
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Add mlops to docker group
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        groups: docker
+        append: true
+
+    - name: Start and enable Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    # ── Python окружение ──────────────────────────────────────────────────────
+    - name: Install Python 3.12 dev packages
+      ansible.builtin.apt:
+        name:
+          - python3.12
+          - python3.12-venv
+          - python3.12-dev
+          - python3-pip
+        state: present
+
+    - name: Create ML venv directory
+      ansible.builtin.file:
+        path: /opt/ml-env
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+
+    - name: Create ML virtualenv (python3.12)
+      ansible.builtin.command: python3.12 -m venv /opt/ml-env
+      args:
+        creates: /opt/ml-env/bin/activate
+      become_user: "{{ deploy_user }}"
+
+    - name: Install base ML packages
+      ansible.builtin.pip:
+        name:
+          - pip
+          - wheel
+          - setuptools
+          - boto3
+          - mlflow
+          - wandb
+        state: latest
+        virtualenv: /opt/ml-env
+      become_user: "{{ deploy_user }}"
+
+    # ── Git config ────────────────────────────────────────────────────────────
+    - name: Configure git for mlops
+      ansible.builtin.blockinfile:
+        path: /home/{{ deploy_user }}/.gitconfig
+        create: true
+        block: |
+          [core]
+            autocrlf = input
+          [pull]
+            rebase = false
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+
+    # ── rclone config dir ─────────────────────────────────────────────────────
+    - name: Create rclone config dir
+      ansible.builtin.file:
+        path: /home/{{ deploy_user }}/.config/rclone
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0700"
+
+    # ── Структура проекта ─────────────────────────────────────────────────────
+    - name: Create project directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+      loop:
+        - /opt/projects
+        - /opt/datasets
+        - /opt/artifacts/checkpoints
+        - /opt/artifacts/submissions
+        - /opt/artifacts/logs
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
