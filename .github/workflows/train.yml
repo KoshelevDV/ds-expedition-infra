@@ -78,14 +78,8 @@ jobs:
           echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "VM IP: $VM_IP"
 
-      # ── 2. Загрузить датасет из MinIO на GPU VM ──────────────────────────────
-      - name: Sync dataset to GPU VM
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/selectel_ds_scan \
-            mlops@${{ steps.get_ip.outputs.vm_ip }} \
-            "mc alias set minio ${{ env.MINIO_ENDPOINT }} \
-              ${{ secrets.MINIO_ROOT_USER }} ${{ secrets.MINIO_ROOT_PASSWORD }} && \
-             mc mirror minio/datasets /opt/datasets/"
+      # ── 2. Датасет доступен через NFS с main VM (192.168.0.239:/opt/datasets) ──
+      # Монтирование происходит автоматически в cloud-init при старте GPU VM
 
       # ── 3. Запустить обучение ────────────────────────────────────────────────
       - name: Run training

@@ -14,6 +14,7 @@ packages:
   - python3.12-venv
   - python3-pip
   - git
+  - nfs-common
 
 runcmd:
   # NVIDIA Container Toolkit (если нет в образе)
@@ -32,7 +33,11 @@ runcmd:
 
   # Директории
   - mkdir -p /opt/datasets /opt/artifacts /opt/project
-  - chown -R mlops:mlops /opt/datasets /opt/artifacts /opt/project /opt/ml-env
+  - chown -R mlops:mlops /opt/artifacts /opt/project /opt/ml-env
+
+  # Монтируем датасет с main VM по NFS (private network 192.168.0.239)
+  - mount -t nfs 192.168.0.239:/opt/datasets /opt/datasets
+  - echo "192.168.0.239:/opt/datasets /opt/datasets nfs ro,defaults 0 0" >> /etc/fstab
 
   # Сигнал готовности
   - touch /tmp/cloud-init-done
