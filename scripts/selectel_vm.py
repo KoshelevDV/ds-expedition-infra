@@ -70,15 +70,26 @@ def cmd_create(args, token):
         with open(args.userdata) as f:
             userdata = base64.b64encode(f.read().encode()).decode()
 
+    # GL10 (RTX 4090) и другие GPU флейворы имеют Disk:0 —
+    # Selectel требует boot-from-volume для таких флейворов.
     body = {
         "server": {
             "name": args.name,
             "flavorRef": args.flavor,
-            "imageRef": args.image,
             "key_name": args.key,
             "networks": [{"uuid": args.network}],
             "availability_zone": os.environ.get("AVAILABILITY_ZONE", "ru-7b"),
             "user_data": userdata,
+            "block_device_mapping_v2": [
+                {
+                    "boot_index": 0,
+                    "uuid": args.image,
+                    "source_type": "image",
+                    "destination_type": "volume",
+                    "volume_size": args.disk_size,
+                    "delete_on_termination": True,  # том удаляется вместе с VM
+                }
+            ],
         }
     }
     # Remove None values
@@ -132,6 +143,8 @@ def main():
     p_create.add_argument("--key", required=True)
     p_create.add_argument("--network", required=True)
     p_create.add_argument("--userdata")
+    p_create.add_argument("--disk-size", type=int, default=200,
+                          help="Boot volume size in GB (default: 200)")
 
     p_wait = sub.add_parser("wait")
     p_wait.add_argument("--id", required=True)
