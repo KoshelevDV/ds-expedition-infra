@@ -1,0 +1,51 @@
+---
+- name: Create runner directory
+  file:
+    path: "{{ github_runner_dir }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0755"
+
+- name: Download GitHub Actions runner
+  become_user: "{{ github_runner_user }}"
+  get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "/tmp/actions-runner.tar.gz"
+    mode: "0644"
+
+- name: Extract runner
+  become_user: "{{ github_runner_user }}"
+  unarchive:
+    src: "/tmp/actions-runner.tar.gz"
+    dest: "{{ github_runner_dir }}"
+    remote_src: yes
+
+- name: Configure runner
+  become_user: "{{ github_runner_user }}"
+  command: >
+    ./config.sh
+    --url {{ github_runner_repo_url }}
+    --token {{ github_runner_token }}
+    --name {{ github_runner_name }}
+    --labels {{ github_runner_labels }}
+    --unattended
+    --replace
+  args:
+    chdir: "{{ github_runner_dir }}"
+
+- name: Install runner as systemd service
+  command: ./svc.sh install {{ github_runner_user }}
+  args:
+    chdir: "{{ github_runner_dir }}"
+
+- name: Start runner service
+  command: ./svc.sh start
+  args:
+    chdir: "{{ github_runner_dir }}"
+
+- name: Enable runner service
+  systemd:
+    name: "actions.runner.nkz-soft-expedition-ds-scaning.gpu-ml-01.service"
+    enabled: yes
+    daemon_reload: yes

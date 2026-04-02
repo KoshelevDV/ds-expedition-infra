@@ -1,0 +1,9 @@
+---
+- name: Setup GitHub Actions self-hosted runner
+  hosts: ml_nodes
+  become: yes
+
+  roles:
+    - role: ../roles/github-runner
+      vars:
+        github_runner_token: "{{ runner_token }}"
