@@ -1,13 +1,12 @@
 #cloud-config
-# GPU VM cloud-init для обучения
-# Ubuntu 22.04 + CUDA 12 + Python 3.11 + project dependencies
+# GPU VM cloud-init
+# Базовый образ: Ubuntu 22.04 + GPU Driver 590 + Docker (уже встроено)
+# Устанавливаем только Python 3.11 + ML зависимости
 
 users:
   - name: mlops
     groups: [sudo, docker]
     shell: /bin/bash
-    ssh_authorized_keys:
-      - ${SSH_PUBLIC_KEY}
     sudo: ALL=(ALL) NOPASSWD:ALL
 
 packages:
@@ -15,27 +14,21 @@ packages:
   - python3.11-venv
   - python3-pip
   - git
-  - curl
-  - awscli
 
 runcmd:
-  # Docker
-  - curl -fsSL https://get.docker.com | sh
-  - usermod -aG docker mlops
-
-  # NVIDIA Container Toolkit
-  - curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  - curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  - apt-get update -qq
-  - apt-get install -y nvidia-container-toolkit
-  - nvidia-ctk runtime configure --runtime=docker
+  # NVIDIA Container Toolkit (если нет в образе)
+  - nvidia-ctk runtime configure --runtime=docker || true
   - systemctl restart docker
 
-  # Python venv
+  # MinIO client для синка датасета
+  - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+  - chmod +x /usr/local/bin/mc
+
+  # Python venv + ML зависимости
   - python3.11 -m venv /opt/ml-env
-  - /opt/ml-env/bin/pip install --upgrade pip
-  - /opt/ml-env/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-  - /opt/ml-env/bin/pip install mlflow boto3 rasterio geopandas shapely numpy pandas scikit-learn tqdm
+  - /opt/ml-env/bin/pip install --upgrade pip --quiet
+  - /opt/ml-env/bin/pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+  - /opt/ml-env/bin/pip install --quiet mlflow boto3 rasterio geopandas shapely numpy pandas scikit-learn tqdm
 
   # Директории
   - mkdir -p /opt/datasets /opt/artifacts /opt/project
