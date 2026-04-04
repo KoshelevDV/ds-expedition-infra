@@ -44,8 +44,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "127.0.0.1:9000:9000"   # S3 API
-      - "127.0.0.1:9001:9001"   # Console UI
+      - "0.0.0.0:9000:9000"   # S3 API
+      - "0.0.0.0:9001:9001"   # Console UI
     networks:
       - ml-net
     healthcheck:
@@ -102,7 +102,7 @@ services:
       --port 5000
       --serve-artifacts
     ports:
-      - "127.0.0.1:5000:5000"
+      - "0.0.0.0:5000:5000"
     networks:
       - ml-net
     healthcheck:
@@ -129,7 +129,7 @@ services:
       - /opt/artifacts:/home/jovyan/artifacts
       - jupyter_data:/home/jovyan/.jupyter
     ports:
-      - "127.0.0.1:8888:8888"
+      - "0.0.0.0:8888:8888"
     networks:
       - ml-net
     user: root
