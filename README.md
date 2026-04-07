@@ -166,7 +166,7 @@ mc alias set expds https://s3.ru-7.storage.selcloud.ru \
   a064df53e320474396c1de1c82dd858e \
   b1f66191dfe34927992afe3cc62a66ce
 
-mc mirror --overwrite expds/train-expds-2 /opt/datasets/train/
+mc mirror --overwrite --retry --summary --quiet expds/train-expds-2 /opt/datasets/train/
 ```
 
 ### Автоматическая синхронизация (systemd timer)
