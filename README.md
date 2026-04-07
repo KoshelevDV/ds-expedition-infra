@@ -143,7 +143,7 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ## Dataset (Selectel S3)
 
-Обучающая выборка (~132 GB):
+Обучающая выборка (~133 GB):
 
 ```
 Endpoint:   s3.ru-7.storage.selcloud.ru:443
@@ -152,12 +152,51 @@ Access Key: a064df53e320474396c1de1c82dd858e
 Secret Key: b1f66191dfe34927992afe3cc62a66ce
 ```
 
-Скачать на VM:
+Локально на VM: `/opt/datasets/train/`
+
+GPU VM монтирует датасет по NFS с main VM (read-only):
+```
+192.168.0.239:/opt/datasets  →  /opt/datasets  (монтируется в cloud-init)
+```
+
+### Ручная синхронизация
+
 ```bash
-mc alias set expds s3://s3.ru-7.storage.selcloud.ru \
+mc alias set expds https://s3.ru-7.storage.selcloud.ru \
   a064df53e320474396c1de1c82dd858e \
   b1f66191dfe34927992afe3cc62a66ce
-mc mirror expds/train-expds-2 /opt/datasets/
+
+mc mirror --overwrite expds/train-expds-2 /opt/datasets/train/
+```
+
+### Автоматическая синхронизация (systemd timer)
+
+Настроен systemd timer на main VM — синк каждый день в 03:00 UTC (07:00 Саратов).
+
+```bash
+# Статус
+systemctl status s3-dataset-sync.timer
+systemctl status s3-dataset-sync.service
+
+# Запустить вручную (не ждать расписания)
+systemctl start s3-dataset-sync.service
+
+# Посмотреть лог
+tail -f /var/log/s3-dataset-sync.log
+
+# Следующий запуск
+systemctl list-timers s3-dataset-sync.timer
+```
+
+Файлы:
+- `/etc/systemd/system/s3-dataset-sync.service`
+- `/etc/systemd/system/s3-dataset-sync.timer`
+
+### Проверить что обновилось
+
+```bash
+# Файлы изменённые за последний час
+find /opt/datasets/train/ -mmin -60 -type f | sort
 ```
 
 ---
