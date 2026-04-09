@@ -1,0 +1,4 @@
+.env
+.claude/
+entities.json
+mempalace.yaml

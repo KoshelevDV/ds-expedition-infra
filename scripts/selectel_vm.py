@@ -15,9 +15,11 @@ import time
 import urllib.request
 import urllib.error
 
-REGION = "ru-7"
+REGION = os.environ.get("REGION", "ru-7")
 AUTH_URL = "https://cloud.api.selcloud.ru/identity/v3/auth/tokens"
 COMPUTE_URL = f"https://{REGION}.cloud.api.selcloud.ru/compute/v2.1"
+VOLUME_URL = None  # set after get_token (needs project_id)
+
 
 def get_token():
     payload = {
@@ -50,17 +52,54 @@ def get_token():
     return resp.headers.get("X-Subject-Token")
 
 
-def api(method, path, token, body=None):
-    url = COMPUTE_URL + path
+def _api_call(url, method, token, body=None):
     data = json.dumps(body).encode() if body else None
     headers = {"X-Auth-Token": token, "Content-Type": "application/json"}
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         resp = urllib.request.urlopen(req)
-        return json.loads(resp.read()) if resp.read else {}
+        raw = resp.read()
+        return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
         print(f"API error {e.code}: {e.read().decode()}", file=sys.stderr)
         sys.exit(1)
+
+
+def api(method, path, token, body=None):
+    return _api_call(COMPUTE_URL + path, method, token, body)
+
+
+def volume_api(method, path, token, body=None):
+    return _api_call(VOLUME_URL + path, method, token, body)
+
+
+def create_volume(name, image_id, size, az, volume_type, token):
+    """Create a bootable volume from image and wait until available."""
+    body = {
+        "volume": {
+            "name": f"disk-for-{name}",
+            "size": size,
+            "volume_type": volume_type,
+            "imageRef": image_id,
+            "availability_zone": az,
+        }
+    }
+    result = volume_api("POST", "/volumes", token, body)
+    vol_id = result["volume"]["id"]
+    print(f"Volume created: {vol_id}", file=sys.stderr)
+
+    for _ in range(60):  # max 5 minutes
+        result = volume_api("GET", f"/volumes/{vol_id}", token)
+        status = result["volume"]["status"]
+        print(f"Volume status: {status}", file=sys.stderr)
+        if status == "available":
+            return vol_id
+        if status == "error":
+            print("Volume creation failed", file=sys.stderr)
+            sys.exit(1)
+        time.sleep(5)
+    print("Volume creation timeout", file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_create(args, token):
@@ -70,29 +109,32 @@ def cmd_create(args, token):
         with open(args.userdata) as f:
             userdata = base64.b64encode(f.read().encode()).decode()
 
-    # GL10 (RTX 4090) и другие GPU флейворы имеют Disk:0 —
-    # Selectel требует boot-from-volume для таких флейворов.
+    az = os.environ.get("AVAILABILITY_ZONE", "ru-7b")
+    volume_type = os.environ.get("VOLUME_TYPE", f"universal.{az}")
+
+    # 1. Create bootable volume from image
+    vol_id = create_volume(args.name, args.image, args.disk_size, az, volume_type, token)
+
+    # 2. Create server with the volume
     body = {
         "server": {
             "name": args.name,
             "flavorRef": args.flavor,
             "key_name": args.key,
             "networks": [{"uuid": args.network}],
-            "availability_zone": os.environ.get("AVAILABILITY_ZONE", "ru-7b"),
+            "availability_zone": az,
             "user_data": userdata,
             "block_device_mapping_v2": [
                 {
                     "boot_index": 0,
-                    "uuid": args.image,
-                    "source_type": "image",
+                    "uuid": vol_id,
+                    "source_type": "volume",
                     "destination_type": "volume",
-                    "volume_size": args.disk_size,
-                    "delete_on_termination": True,  # том удаляется вместе с VM
+                    "delete_on_termination": True,
                 }
             ],
         }
     }
-    # Remove None values
     body["server"] = {k: v for k, v in body["server"].items() if v is not None}
     result = api("POST", "/servers", token, body)
     server_id = result["server"]["id"]
@@ -108,7 +150,9 @@ def cmd_wait(args, token):
             print("ACTIVE")
             return
         if status == "ERROR":
-            print("ERROR", file=sys.stderr)
+            fault = result["server"].get("fault", {})
+            msg = fault.get("message", "unknown error")
+            print(f"ERROR: {msg}", file=sys.stderr)
             sys.exit(1)
         time.sleep(10)
     print("TIMEOUT", file=sys.stderr)
@@ -133,6 +177,7 @@ def cmd_delete(args, token):
 
 
 def main():
+    global VOLUME_URL
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd")
 
@@ -159,6 +204,9 @@ def main():
     if not args.cmd:
         parser.print_help()
         sys.exit(1)
+
+    project_id = os.environ["SELECTEL_PROJECT_ID"]
+    VOLUME_URL = f"https://{REGION}.cloud.api.selcloud.ru/volume/v3/{project_id}"
 
     token = get_token()
 

@@ -131,8 +131,8 @@ Workflow в репо `nkz-soft/expedition-ds-scaning`. Файл хранится
 
 | Param | Value |
 |---|---|
-| Flavor | `GL10.8-65536-0-1GPU` (RTX 4090, 8vCPU, 64GB RAM) |
-| Image | Ubuntu 22.04 + GPU Driver 590 + Docker |
+| Flavor | `c5293c19-...` (RTX 4090, 12vCPU, 120GB RAM) |
+| Image | Ubuntu 24.04 LTS + GPU Driver 580 Open |
 | Network | ru-7 private (`192.168.0.0/24`) |
 | Keypair | `OpenClaw` |
 
