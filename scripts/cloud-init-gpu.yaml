@@ -3,6 +3,7 @@
 # Базовый образ: Ubuntu 24.04 LTS GPU Driver 580 Open
 
 users:
+  - default
   - name: mlops
     groups: [sudo]
     shell: /bin/bash
@@ -16,6 +17,13 @@ packages:
   - nfs-common
 
 runcmd:
+  # Копируем SSH ключ от дефолтного юзера (keypair OpenClaw) к mlops
+  - mkdir -p /home/mlops/.ssh
+  - cp /root/.ssh/authorized_keys /home/mlops/.ssh/authorized_keys 2>/dev/null || cp /home/ubuntu/.ssh/authorized_keys /home/mlops/.ssh/authorized_keys 2>/dev/null || true
+  - chown -R mlops:mlops /home/mlops/.ssh
+  - chmod 700 /home/mlops/.ssh
+  - chmod 600 /home/mlops/.ssh/authorized_keys 2>/dev/null || true
+
   # MinIO client
   - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
   - chmod +x /usr/local/bin/mc
