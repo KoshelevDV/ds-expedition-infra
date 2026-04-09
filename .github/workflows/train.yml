@@ -71,12 +71,24 @@ jobs:
           SELECTEL_ACCOUNT_ID: ${{ secrets.SELECTEL_ACCOUNT_ID }}
           SELECTEL_PROJECT_ID: ${{ secrets.SELECTEL_PROJECT_ID }}
         run: |
-          # Ждём cloud-init (~3 мин)
-          sleep 180
           VM_IP=$(python3 /opt/projects/ds-expedition-infra/scripts/selectel_vm.py ip \
             --id ${{ steps.create_vm.outputs.vm_id }})
           echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "VM IP: $VM_IP"
+
+      - name: Wait for cloud-init to finish
+        run: |
+          echo "Waiting for cloud-init on ${{ steps.get_ip.outputs.vm_ip }}..."
+          for i in $(seq 1 60); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/selectel_ds_scan \
+              mlops@${{ steps.get_ip.outputs.vm_ip }} "test -f /tmp/cloud-init-done" 2>/dev/null; then
+              echo "cloud-init done after ~$((i*10))s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "cloud-init timeout after 10 minutes"
+          exit 1
 
       # ── 2. Датасет доступен через NFS с main VM (192.168.0.239:/opt/datasets) ──
       # Монтирование происходит автоматически в cloud-init при старте GPU VM
