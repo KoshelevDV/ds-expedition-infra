@@ -1,4 +1,4 @@
-github_runner_version: "2.322.0"
+github_runner_version: "2.333.1"
 github_runner_user: mlops
 github_runner_base_dir: /opt/github-runners
 
