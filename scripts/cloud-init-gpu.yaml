@@ -1,11 +1,10 @@
 #cloud-config
 # GPU VM cloud-init
-# Базовый образ: Ubuntu 22.04 + GPU Driver 590 + Docker (уже встроено)
-# Устанавливаем только Python 3.12 + ML зависимости
+# Базовый образ: Ubuntu 24.04 LTS GPU Driver 580 Open
 
 users:
   - name: mlops
-    groups: [sudo, docker]
+    groups: [sudo]
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
 
@@ -17,11 +16,7 @@ packages:
   - nfs-common
 
 runcmd:
-  # NVIDIA Container Toolkit (если нет в образе)
-  - nvidia-ctk runtime configure --runtime=docker || true
-  - systemctl restart docker
-
-  # MinIO client для синка датасета
+  # MinIO client
   - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
   - chmod +x /usr/local/bin/mc
 
