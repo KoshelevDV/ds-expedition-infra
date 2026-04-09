@@ -1,9 +1,20 @@
 ---
-- name: Setup GitHub Actions self-hosted runner
+- name: Setup GitHub Actions self-hosted runners
   hosts: ml_nodes
   become: yes
 
   roles:
     - role: ../roles/github-runner
       vars:
-        github_runner_token: "{{ runner_token }}"
+        github_runners:
+          - name: "gpu-ml-01"
+            dir: "/opt/actions-runner"
+            repo_url: "https://github.com/nkz-soft/expedition-ds-scaning"
+            token: "{{ runner_token_scanning }}"
+            labels: "self-hosted,linux,gpu-orchestrator"
+
+          - name: "gpu-ml-baseline-01"
+            repo_url: "https://github.com/nkz-soft/expedition-ds-scaning-baseline"
+            token: "{{ runner_token_baseline }}"
+            dir: "/opt/actions-runner-baseline"
+            labels: "self-hosted,linux,gpu-orchestrator"

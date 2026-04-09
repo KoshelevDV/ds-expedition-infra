@@ -1,7 +1,7 @@
 github_runner_version: "2.322.0"
 github_runner_user: mlops
-github_runner_dir: /opt/actions-runner
-github_runner_repo_url: "https://github.com/nkz-soft/expedition-ds-scaning"
-github_runner_token: ""
-github_runner_name: "gpu-ml-01"
-github_runner_labels: "self-hosted,linux,gpu-orchestrator"
+github_runner_base_dir: /opt/github-runners
+
+# List of runners to install on this host
+# Each item requires: name, repo_url, token, labels
+github_runners: []

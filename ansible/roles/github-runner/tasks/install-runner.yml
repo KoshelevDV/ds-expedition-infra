@@ -1,0 +1,83 @@
+---
+# Per-runner tasks, called with `runner` variable from main.yml
+
+- name: "{{ runner.name }} | Set runner dir"
+  set_fact:
+    _runner_dir: "{{ runner.dir | default(github_runner_base_dir + '/' + runner.name) }}"
+    _repo_slug: "{{ runner.repo_url | regex_replace('https://github.com/', '') | replace('/', '-') }}"
+
+- name: "{{ runner.name }} | Create runner directory"
+  check_mode: false
+  file:
+    path: "{{ _runner_dir }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0755"
+
+- name: "{{ runner.name }} | Check installed runner version"
+  command: ./config.sh --version
+  args:
+    chdir: "{{ _runner_dir }}"
+  become_user: "{{ github_runner_user }}"
+  register: _runner_version_check
+  failed_when: false
+  changed_when: false
+
+- name: "{{ runner.name }} | Set runner needs install flag"
+  set_fact:
+    _runner_needs_install: "{{ _runner_version_check.rc != 0 or _runner_version_check.stdout | trim != github_runner_version }}"
+
+- name: "{{ runner.name }} | Download GitHub Actions runner"
+  become_user: "{{ github_runner_user }}"
+  get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
+    mode: "0644"
+  when: _runner_needs_install and not ansible_check_mode
+
+- name: "{{ runner.name }} | Extract runner"
+  become_user: "{{ github_runner_user }}"
+  unarchive:
+    src: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
+    dest: "{{ _runner_dir }}"
+    remote_src: yes
+  when: _runner_needs_install and not ansible_check_mode
+
+- name: "{{ runner.name }} | Check if runner is already configured"
+  stat:
+    path: "{{ _runner_dir }}/.runner"
+  register: _runner_configured
+
+- name: "{{ runner.name }} | Configure runner"
+  become_user: "{{ github_runner_user }}"
+  command: >
+    ./config.sh
+    --url {{ runner.repo_url }}
+    --token {{ runner.token }}
+    --name {{ runner.name }}
+    --labels {{ runner.labels }}
+    --unattended
+    --replace
+  args:
+    chdir: "{{ _runner_dir }}"
+  when: not _runner_configured.stat.exists and not ansible_check_mode
+
+- name: "{{ runner.name }} | Check if systemd service exists"
+  stat:
+    path: "/etc/systemd/system/actions.runner.{{ _repo_slug }}.{{ runner.name }}.service"
+  register: _runner_service
+
+- name: "{{ runner.name }} | Install runner as systemd service"
+  command: ./svc.sh install {{ github_runner_user }}
+  args:
+    chdir: "{{ _runner_dir }}"
+  when: not _runner_service.stat.exists and not ansible_check_mode
+
+- name: "{{ runner.name }} | Enable and start runner service"
+  systemd:
+    name: "actions.runner.{{ _repo_slug }}.{{ runner.name }}.service"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: _runner_service.stat.exists or not ansible_check_mode

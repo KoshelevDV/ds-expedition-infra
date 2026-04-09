@@ -64,33 +64,51 @@ docker compose logs -f     # Логи
 
 ---
 
-## Self-hosted GitHub Runner
+## Self-hosted GitHub Runners
 
-Runner `gpu-ml-01` зарегистрирован в репо `nkz-soft/expedition-ds-scaning`.
+| Runner | Репо | Директория | Сервис | Управление |
+|---|---|---|---|---|
+| `gpu-ml-01` | `nkz-soft/expedition-ds-scaning` | `/opt/actions-runner/` | `actions.runner.nkz-soft-expedition-ds-scaning.gpu-ml-01` | Ansible |
+| `gpu-ml-baseline-01` | `nkz-soft/expedition-ds-scaning-baseline` | `/opt/actions-runner-baseline/` | `actions.runner.nkz-soft-expedition-ds-scaning-baseline.gpu-ml-baseline-01` | Ansible |
+
+Оба раннера управляются через Ansible. Директория задаётся параметром `dir` (по умолчанию `/opt/github-runners/<name>/`).
 
 ```yaml
 # В workflow указывать:
 runs-on: [self-hosted, linux, gpu-orchestrator]
 ```
 
-Сервис: `actions.runner.nkz-soft-expedition-ds-scaning.gpu-ml-01`
-
 ```bash
-# Статус
+# Статус всех раннеров
 systemctl status 'actions.runner.*'
 
-# Перезапуск
-cd /opt/actions-runner && ./svc.sh stop && ./svc.sh start
+# Перезапуск раннера
+cd /opt/actions-runner && sudo ./svc.sh stop && sudo ./svc.sh start
+cd /opt/actions-runner-baseline && sudo ./svc.sh stop && sudo ./svc.sh start
 ```
 
-Переустановка (если истёк токен):
-```bash
-cd /opt/projects/ds-expedition-infra
-ansible-playbook \
-  -i ansible/inventories/production/hosts.yml \
-  ansible/playbooks/setup-github-runner.yml \
-  -e "runner_token=<NEW_TOKEN>"
-```
+### Добавление нового раннера
+
+1. В репо на GitHub: **Settings → Actions → Runners → New self-hosted runner** — скопировать токен.
+
+2. Добавить запись в `ansible/playbooks/setup-github-runner.yml`:
+   ```yaml
+   - name: "my-runner"
+     repo_url: "https://github.com/org/repo"
+     token: "{{ runner_token_myrunner }}"
+     labels: "self-hosted,linux,gpu"
+   ```
+
+3. Запустить плейбук:
+   ```bash
+   ansible-playbook \
+     -i ansible/inventories/production/hosts.yml \
+     ansible/playbooks/setup-github-runner.yml \
+     -e "runner_token_baseline=<TOKEN>" \
+     -e "runner_token_myrunner=<TOKEN>"
+   ```
+
+> **Примечание:** токен действует ~1 час. Роль идемпотентна — уже установленные раннеры пропускаются.
 
 ---
 
