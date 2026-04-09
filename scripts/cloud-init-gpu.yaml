@@ -17,12 +17,20 @@ packages:
   - nfs-common
 
 runcmd:
-  # Копируем SSH ключ от дефолтного юзера (keypair OpenClaw) к mlops
+  # SSH ключ от keypair → mlops
   - mkdir -p /home/mlops/.ssh
   - cp /root/.ssh/authorized_keys /home/mlops/.ssh/authorized_keys 2>/dev/null || cp /home/ubuntu/.ssh/authorized_keys /home/mlops/.ssh/authorized_keys 2>/dev/null || true
   - chown -R mlops:mlops /home/mlops/.ssh
   - chmod 700 /home/mlops/.ssh
   - chmod 600 /home/mlops/.ssh/authorized_keys 2>/dev/null || true
+
+  # Директории (до установки зависимостей, чтобы были доступны раньше)
+  - mkdir -p /opt/datasets /opt/artifacts /opt/project
+  - chown -R mlops:mlops /opt/artifacts /opt/project
+
+  # NFS датасет с main VM
+  - mount -t nfs 192.168.0.239:/opt/datasets /opt/datasets
+  - echo "192.168.0.239:/opt/datasets /opt/datasets nfs ro,defaults 0 0" >> /etc/fstab
 
   # MinIO client
   - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
@@ -33,14 +41,7 @@ runcmd:
   - /opt/ml-env/bin/pip install --upgrade pip --quiet
   - /opt/ml-env/bin/pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
   - /opt/ml-env/bin/pip install --quiet mlflow boto3 rasterio geopandas shapely numpy pandas scikit-learn tqdm
-
-  # Директории
-  - mkdir -p /opt/datasets /opt/artifacts /opt/project
-  - chown -R mlops:mlops /opt/artifacts /opt/project /opt/ml-env
-
-  # Монтируем датасет с main VM по NFS (private network 192.168.0.239)
-  - mount -t nfs 192.168.0.239:/opt/datasets /opt/datasets
-  - echo "192.168.0.239:/opt/datasets /opt/datasets nfs ro,defaults 0 0" >> /etc/fstab
+  - chown -R mlops:mlops /opt/ml-env
 
   # Сигнал готовности
   - touch /tmp/cloud-init-done
